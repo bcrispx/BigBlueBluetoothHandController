@@ -28,6 +28,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private var bluetoothSocket: BluetoothSocket? = null
     private var outputStream: OutputStream? = null
+    private var isSpiralSearchActive = false
+    private var spiralSpeed = 1
 
     private fun performHapticFeedback() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -46,6 +48,8 @@ class MainActivity : AppCompatActivity() {
         private const val TAG = "MainActivity"
         private val ESP32_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
         private const val ESP32_NAME = "ESP32_Direction_Control"
+        private const val SPIRAL_STEP_SIZE = 100 // Milliseconds per direction
+        private const val SPIRAL_GROWTH = 1.5f // How much larger each spiral loop gets
     }
 
     private val bluetoothPermissionLauncher = registerForActivityResult(
@@ -74,6 +78,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupButtons() {
+        binding.btnSpiralSpeed.setOnClickListener {
+            spiralSpeed = if (spiralSpeed >= 3) 1 else spiralSpeed + 1
+            binding.btnSpiralSpeed.text = "Speed: ${spiralSpeed}x"
+            if (isSpiralSearchActive) {
+                sendCommand("SPIRAL,SPEED,$spiralSpeed\n")
+            }
+        }
+
         binding.btnConnect.setOnClickListener {
             if (bluetoothSocket?.isConnected == true) {
                 disconnectBluetooth()
@@ -92,10 +104,28 @@ class MainActivity : AppCompatActivity() {
         buttonCommands.forEach { (button, direction) ->
             button.setOnTouchListener { _, event ->
                 when (event.action) {
-                    MotionEvent.ACTION_DOWN -> sendCommand("$direction,START\n")
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> sendCommand("$direction,STOP\n")
+                    MotionEvent.ACTION_DOWN -> {
+                        if (isSpiralSearchActive) {
+                            stopSpiralSearch()
+                        } else {
+                            sendCommand("$direction,START\n")
+                        }
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        if (!isSpiralSearchActive) {
+                            sendCommand("$direction,STOP\n")
+                        }
+                    }
                 }
                 true
+            }
+        }
+
+        binding.btnSpiral.setOnClickListener {
+            if (!isSpiralSearchActive) {
+                startSpiralSearch()
+            } else {
+                stopSpiralSearch()
             }
         }
     }
@@ -214,15 +244,32 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateConnectionStatus(connected: Boolean) {
-        binding.btnConnect.text = if (connected) "Disconnect" else "Connect to ESP32"
+        binding.btnConnect.text = if (connected) "Disconnect" else "Connect to Big Blue"
         binding.btnNorth.isEnabled = connected
         binding.btnSouth.isEnabled = connected
         binding.btnEast.isEnabled = connected
         binding.btnWest.isEnabled = connected
+        binding.btnSpiral.isEnabled = connected
+        binding.btnSpiralSpeed.isEnabled = connected
+    }
+
+    private fun startSpiralSearch() {
+        if (bluetoothSocket?.isConnected != true) return
+        
+        isSpiralSearchActive = true
+        binding.btnSpiral.text = "Stop Spiral"
+        sendCommand("SPIRAL,START,$spiralSpeed\n")
+    }
+
+    private fun stopSpiralSearch() {
+        isSpiralSearchActive = false
+        binding.btnSpiral.text = "Spiral Search"
+        sendCommand("SPIRAL,STOP\n")
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        stopSpiralSearch()
         disconnectBluetooth()
     }
 }
